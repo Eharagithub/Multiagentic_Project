@@ -20,7 +20,7 @@ function envBackendUrl(): string | undefined {
 // Resolution: app.json config > env var > LAN IP fallback
 // Base URL defaults to Prompt Processor (port 8000)
 // app.json can override to point to Orchestrator (8001) for simplified flow
-const resolvedUrl = envBackendUrl() || 'http://10.142.247.156:8000';
+const resolvedUrl = envBackendUrl() || 'http://10.251.177.156:8000';
 console.log('[Backend Config] Resolved backend URL:', resolvedUrl);
 console.log('[Backend Config] Source:', envBackendUrl() ? 'app.config/env' : 'default LAN IP');
 export const BACKEND_BASE_URL: string = resolvedUrl;

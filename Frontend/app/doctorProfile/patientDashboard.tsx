@@ -129,8 +129,7 @@ const PatientDashboard: React.FC = () => {
         return () => unsubscribe();
     }, [params.linkId]);
 
-    // In patientDashboard.tsx - update the fetchPatientData function
-// In patientDashboard.tsx - update the fetchPatientData function
+// fetchPatientData function
 const fetchPatientData = async (patientUid: string, linkData?: any) => {
   try {
     console.log('📥 Starting to fetch patient data for UID:', patientUid);
@@ -152,6 +151,7 @@ const fetchPatientData = async (patientUid: string, linkData?: any) => {
       // Skip fetching from Patient collection since patient hasn't signed up yet
       console.log('⏭️ Skipping Patient collection fetch for non-registered patient');
     } else {
+        
       // ===== FETCH PERSONAL DATA FROM PATIENT COLLECTION =====
       try {
         const personalInfo = await fetchPatientPersonalData(patientUid);
@@ -629,6 +629,7 @@ const fetchPatientData = async (patientUid: string, linkData?: any) => {
                             <Text style={styles.bloodType}>Blood: {patientInfo.bloodType}</Text>
                         </View>
                     </View>
+
                 </View>
 
                 {/* Status Badge */}
@@ -645,7 +646,7 @@ const fetchPatientData = async (patientUid: string, linkData?: any) => {
                     </Text>
                 </View>
 
-                {/* Action Buttons with Icons */}
+                {/* Action Buttons with Icons
                 <View style={styles.actionButtons}>
                     <TouchableOpacity style={styles.callButton}>
                         <FontAwesome name="phone" size={16} color="#fff" />
@@ -655,13 +656,24 @@ const fetchPatientData = async (patientUid: string, linkData?: any) => {
                         <Feather name="message-circle" size={16} color="#fff" />
                         <Text style={styles.callButtonText}>Message</Text>
                     </TouchableOpacity>
+                </View> */}
+
+                  {/* Action Buttons with Icons */}
+                <View style={styles.actionButtons}>
+                    <TouchableOpacity style={styles.callButton} onPress={handleUploadDocument}
+                    disabled={uploading}>
+                        <MaterialIcons name="cloud-upload" size={16} color="#fff" />
+                        <Text style={styles.callButtonText}>{uploading ? 'Uploading...' : 'Upload Documents'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.callButton} onPress={() => setJourneyTrackerModalVisible(true)}>
+                        <Ionicons name="stats-chart" size={16} color="#fff" />
+                        <Text style={styles.callButtonText}>Journey Tracker</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
 
-            {/* Divider */}
-            <View style={styles.divider} />
 
-            {/* Upload Documents with Icon */}
+            {/* Upload Documents with Icon
             <View style={styles.uploadButtons}>
                 <TouchableOpacity 
                     style={styles.uploadSection}
@@ -673,14 +685,14 @@ const fetchPatientData = async (patientUid: string, linkData?: any) => {
                 </TouchableOpacity>
 
                 {/* Progress Monitor with Icon */}
-                <TouchableOpacity 
+                {/*<TouchableOpacity 
                     style={styles.progressSection}
                     onPress={() => setJourneyTrackerModalVisible(true)}
                 >
                     <Ionicons name="stats-chart" size={20} color="#7d4c9e" />
                     <Text style={styles.progressText}>Journey Tracker</Text>
                 </TouchableOpacity>
-            </View>
+            </View> */}
 
             {/* Navigation Tabs */}
             <View style={styles.navTabs}>

@@ -145,6 +145,19 @@ export default function CreateProfile() {
       return;
     }
 
+        // Validate NIC - Sri Lankan format
+        // Old format: 9 digits + V/X (e.g., 123456789V)
+        // New format: 12 digits (e.g., 123456789012)
+        const nicTrimmed = nic.trim().toUpperCase();
+        const isValidOldFormat = /^[0-9]{9}[VX]$/.test(nicTrimmed); // Old format: 9 digits + V or X
+        const isValidNewFormat = /^[0-9]{12}$/.test(nicTrimmed); // New format: 12 digits
+        
+        if (!isValidOldFormat && !isValidNewFormat) {
+            Alert.alert('Error', 'Invalid NIC format. Please enter a valid Sri Lankan NIC (9 digits + V/X or 12 digits).');
+            setIsLoading(false);
+            return;
+        }
+
         // Validate contact number (must be exactly 10 digits)
         if (!/^[0-9]{10}$/.test(contact.trim())) {
             Alert.alert('Error', 'Contact number must contain exactly 10 digits.');

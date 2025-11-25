@@ -5,12 +5,11 @@ import { Dimensions, FlatList, Image, KeyboardAvoidingView, Platform, ScrollView
 import { callChatOrchestrate, AgentResult } from '../../services/backendApi';
 import Animated, { 
   useAnimatedStyle, 
-  useSharedValue, 
+  useSharedValue,
   withTiming,
   withRepeat,
-  withSequence,
+  withSequence
 } from 'react-native-reanimated';
-import { withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { chatStyles } from './AgentView';
@@ -70,14 +69,15 @@ export default function WelcomeScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMinimized, setChatMinimized] = useState(false);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [userId, setUserId] = useState<string | null>(null);
+  const [messages, setMessages] = useState([
     {
       id: 1,
-      type: 'bot',
-      text: "Hi! I'm your LifeFile health assistant. You can enter your symptoms and journey queries. (Headache, Fever or Tell my medical history)",
+      type: 'bot' as const,
+      text: '👋 Welcome to Healthcare Assistant!\n\n📋 Two Ways to Use:\n\n1️⃣ SYMPTOM ANALYSIS (Anonymous)\n• Describe your symptoms: "I have fever and headache"\n• Get instant disease predictions\n• No registration needed\n\n2️⃣ PATIENT JOURNEY (Registered Users)\n• View your medical history\n• Track your health journey\n• Requires: Patient ID (pat1, ABC123, etc.)\n\n💡 Tip: Just type your symptoms or enter your Patient ID to get started!',
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
-  ]);
+  ] as ChatMessage[]);
 
   const logoScale = useSharedValue(1);
   const contentOpacity = useSharedValue(0);
@@ -94,7 +94,7 @@ export default function WelcomeScreen() {
     const animationTimeout = Platform.OS === 'web' ? 3000 : 3000;
 
     setTimeout(() => {
-      logoScale.value = withSpring(0.8);
+      logoScale.value = withTiming(0.8, { duration: 600 });
       contentOpacity.value = withTiming(1, { duration: 500 });
       setShowFullContent(true);
     }, animationTimeout);
@@ -114,7 +114,8 @@ export default function WelcomeScreen() {
     return () => {
       clearInterval(interval);
     };
-  }, [currentSlide, logoScale, contentOpacity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSlide]);
 
   const logoAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: logoScale.value }],
@@ -161,8 +162,8 @@ export default function WelcomeScreen() {
 
       chatButtonScale.value = withRepeat(
         withSequence(
-          withSpring(1.1),
-          withSpring(1)
+          withTiming(1.1, { duration: 400 }),
+          withTiming(1, { duration: 400 })
         ),
         -1,
         true
@@ -172,7 +173,7 @@ export default function WelcomeScreen() {
     if (!chatOpen) {
       pulseAnimation();
     } else {
-      chatButtonScale.value = 1;
+      chatButtonScale.value = withTiming(1, { duration: 200 });
       rippleScale.value = 1;
       rippleOpacity.value = 0.2;
     }
@@ -220,10 +221,46 @@ export default function WelcomeScreen() {
         return `📋 Patient Journey: ${patientName}\n\n${formattedSteps}\n\nConfidence: ${confidence}%`;
       }
       if (r.agent === 'symptom_analyzer' && r.result) {
-        return `Symptom Analysis:\n${r.result.identified_symptoms?.join(', ') || 'No symptoms identified'}\nSeverity: ${r.result.severity_level || 'Unknown'}`;
+        const symptoms = r.result.identified_symptoms || [];
+        const severity = r.result.severity_level || 'Unknown';
+        
+        // Map severity levels to user-friendly descriptions
+        const severityMap: {[key: string]: string} = {
+          'low': '🟢 Mild',
+          'mild': '🟢 Mild',
+          'medium': '🟡 Moderate',
+          'moderate': '🟡 Moderate',
+          'high': '🔴 Concerning',
+          'severe': '🔴 Urgent',
+          'unknown': 'Unable to determine'
+        };
+        
+        const userFriendlySeverity = severityMap[severity.toLowerCase()] || severity;
+        const symptomList = symptoms.length > 0 ? symptoms.map((s: string) => `• ${s}`).join('\n') : 'No symptoms identified';
+        
+        return `🔍 What We Found:\n\n${symptomList}\n\n⚠️ How concerning is this: ${userFriendlySeverity}`;
       }
       if (r.agent === 'disease_prediction' && r.result) {
-        return `\n💊 Possible Conditions:\n${r.result.predicted_diseases?.join('\n') || 'No predictions available'}\nConfidence: ${r.result.confidence ? (r.result.confidence * 100).toFixed(0) + '%' : 'Unknown'}`;
+        const diseases = r.result.predicted_diseases || [];
+        const confidence = r.result.confidence ? parseInt((r.result.confidence * 100).toFixed(0)) : 0;
+        
+        // Map confidence levels to user-friendly descriptions
+        let confidenceDescription = 'Unable to determine';
+        if (confidence >= 80) {
+          confidenceDescription = '🟢 Very likely';
+        } else if (confidence >= 60) {
+          confidenceDescription = '🟡 Possibly';
+        } else if (confidence >= 40) {
+          confidenceDescription = '🔵 Could be';
+        } else {
+          confidenceDescription = '⚪ Less likely';
+        }
+        
+        const diseaseList = diseases.length > 0 
+          ? diseases.map((d: string) => `• ${d}`).join('\n') 
+          : 'No predictions available';
+        
+        return `\n💡 Possible Conditions to Consider:\n${diseaseList}\n\n📊 How confident: ${confidenceDescription}`;
       }
       return r.result ? JSON.stringify(r.result, null, 2) : 'No data available';
     }).filter(msg => msg && msg.length > 0);
@@ -246,7 +283,7 @@ export default function WelcomeScreen() {
     try {
       const payload = {
         prompt: originalPrompt,
-        user_id: 'pat1',
+        user_id: userId || 'anonymous',  // Use 'anonymous' for unauthenticated users, not 'pat1'
         session_id: sessionId,
         workflow: 'symptom_analysis',
         get_status: true  // Request status update
@@ -310,31 +347,90 @@ export default function WelcomeScreen() {
       }
       return false;
     }
-  }, [addChatMessage, formatResults]);
+  }, [addChatMessage, formatResults, userId]);
+
+  const handleLogin = useCallback(() => {
+    if (Platform.OS === 'web') {
+      router.push({ pathname: './login' });
+    } else {
+      router.push('../auth/login' as any);
+    }
+  }, [router]);
 
   const sendMessage = useCallback(async () => {
     if (!message.trim()) return;
     
-    // Add user message
+    const userInput = message.trim();
     const sessionId = String(Date.now());
-    addChatMessage(message.trim(), 'user');
-    const userMessage = message;
+    addChatMessage(userInput, 'user');
     setMessage('');
 
     try {
+      // Check if user input looks like a Patient ID (not a natural language query)
+      // Patient IDs should be: pat1, ABC123, john_doe format - typically with digits or underscores/hyphens
+      // NOT just common words like "fever", "headache", etc.
+      
+      // More strict Patient ID pattern: must have digits OR contain underscore/hyphen
+      // Examples that should match: pat1, ABC123, patient_001, john-doe
+      // Examples that should NOT match: fever, headache, cough
+      const hasDigitOrSpecialChar = /[0-9_-]/.test(userInput);
+      const looksLikePatientId = hasDigitOrSpecialChar && 
+                                 userInput.length >= 4 && 
+                                 !/\s/.test(userInput) &&
+                                 /^[a-zA-Z0-9_-]+$/.test(userInput);
+      
+      // If user doesn't have ID set and input looks like Patient ID, try to set it
+      if (!userId && looksLikePatientId) {
+        setUserId(userInput);
+        const examplesMessage = `✅ Patient ID set to: ${userInput}
+
+📚 Now you can ask about:
+• Medical History - "Show my medical history"
+• Symptoms - "I have a headache and fever"  
+• Treatment Info - "What's my current treatment?"
+• Appointments - "When is my next appointment?"
+• Test Results - "Show my recent test results"
+
+Just type your question below!`;
+        addChatMessage(examplesMessage, 'bot');
+        return;
+      }
+
+      // If input doesn't look like Patient ID, treat it as a query
+      // It could be either a symptom query (anonymous) or patient journey query (requires Patient ID)
       const payload = {
-        prompt: userMessage.trim(),
-        user_id: 'pat1',
+        prompt: userInput,
+        user_id: userId || 'anonymous',  // Allow anonymous for symptom analysis
         session_id: sessionId,
         workflow: 'symptom_analysis'
       };
       
       console.log('📤 Sending to Prompt Processor via callChatOrchestrate:', payload);
+      addChatMessage('⏳ Analyzing your query...', 'bot');
+      
       const resp = await callChatOrchestrate(payload);
       console.log('Initial response:', JSON.stringify(resp, null, 2));
 
+      // Check if response is a patient journey query but user is not authenticated
       if (resp?.results?.length) {
-        // If we got immediate results, show them
+        // Check if any result is from patient_journey agent (regardless of error)
+        const hasPatientJourney = resp.results.some(r => r.agent === 'patient_journey');
+        const requiresAuth = hasPatientJourney && !userId;
+        
+        if (requiresAuth) {
+          // Patient journey query but user not authenticated - redirect to login
+          addChatMessage(
+            `📋 This appears to be a patient journey query.\n\nYou need to register to access your medical history and health journey.\n\nRedirecting to login...`,
+            'bot'
+          );
+          // Redirect to login after a short delay
+          setTimeout(() => {
+            handleLogin();
+          }, 1500);
+          return;
+        }
+        
+        // Show results (or error message if present)
         addChatMessage(formatResults(resp.results), 'bot');
       } else if (resp?.mcp_acl?.actions?.length) {
         // Show processing message and start polling for results
@@ -345,7 +441,7 @@ export default function WelcomeScreen() {
         
         addChatMessage(processingText, 'bot');
         // Start polling with original prompt and session ID
-        waitForResults(userMessage.trim(), sessionId);
+        waitForResults(userInput, sessionId);
       } else {
         addChatMessage('No response available from the analysis.', 'bot');
       }
@@ -353,29 +449,21 @@ export default function WelcomeScreen() {
       console.error('Chat error:', err);
       addChatMessage(`Error: ${err.message || 'Unknown error occurred'}`, 'bot');
     }
-  }, [message, addChatMessage, formatResults, waitForResults]);
+  }, [message, userId, addChatMessage, formatResults, waitForResults, setUserId, handleLogin]);
 
   const toggleChat = () => {
     if (chatOpen) {
-      chatScale.value = withSpring(0);
+      chatScale.value = withTiming(0, { duration: 300 });
       setTimeout(() => setChatOpen(false), 200);
     } else {
       setChatOpen(true);
-      chatScale.value = withSpring(1);
+      chatScale.value = withTiming(1, { duration: 300 });
       setChatMinimized(false);
     }
   };
 
   const minimizeChat = () => {
     setChatMinimized(true);
-  };
-
-  const handleLogin = () => {
-    if (Platform.OS === 'web') {
-      router.push({ pathname: './login' });
-    } else {
-      router.push('../auth/login' as any);
-    }
   };
 
   //console.log('Firebase Apps:', getApps());
@@ -532,16 +620,7 @@ export default function WelcomeScreen() {
                 renderItem={renderChatMessage}
                 keyExtractor={(item) => item.id.toString()}
                 style={chatStyles.messagesList}
-                showsVerticalScrollIndicator={true}
-                scrollEnabled={true}
-                nestedScrollEnabled={true}
-                scrollEventThrottle={16}
-                removeClippedSubviews={false}
-                maxToRenderPerBatch={10}
-                updateCellsBatchingPeriod={50}
-                contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={Platform.OS === 'ios' ? 'on-drag' : 'interactive'}
+                showsVerticalScrollIndicator={false}
                 onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
               />
 
@@ -554,12 +633,7 @@ export default function WelcomeScreen() {
                   placeholder="Type your message..."
                   style={chatStyles.textInput}
                   multiline
-                  maxLength={1000}
                   returnKeyType="send"
-                  placeholderTextColor="#999"
-                  onFocus={() => {
-                    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
-                  }}
                 />
                 <TouchableOpacity
                   onPress={sendMessage}

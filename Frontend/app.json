@@ -1,6 +1,6 @@
 {
   "expo": {
-  "scheme": "lifefileapp",
+    "scheme": "lifefileapp",
     "name": "Frontend",
     "slug": "Frontend",
     "version": "1.0.0",
@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lifefile.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.lifefile.app",
@@ -41,7 +45,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "backendUrl": "http://10.142.247.156:8000",
+      "backendUrl": "http://10.251.177.156:8000",
       "router": {},
       "eas": {
         "projectId": "1ab48f2d-774d-4476-aaaf-4904d148e21f"
