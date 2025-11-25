@@ -52,6 +52,7 @@ export const chatStyles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  //  scrollEnabled: true,
   },
   messageContainer: {
     marginBottom: 12,

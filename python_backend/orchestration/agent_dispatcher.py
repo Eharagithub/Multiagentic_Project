@@ -14,7 +14,7 @@ class AgentDispatcher:
     def __init__(self):
         # Agent endpoints
         # Use the same IP as the frontend configuration
-        host = "192.168.1.25"  # Your machine's IP address
+        host = "10.142.247.156"  # Your machine's IP address
         self.disease_prediction_url = f"http://{host}:8002/predict_disease"
         self.symptom_analyzer_url = f"http://{host}:8003/analyze_symptoms"
         self.patient_journey_url = f"http://{host}:8005/patient_journey"

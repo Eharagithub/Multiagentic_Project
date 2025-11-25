@@ -16,6 +16,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { db, auth, firebase } from '../../config/firebaseConfig';
+import { sendOTP } from '../../services/smsService';
 
 export default function CreatePatient() {
     const router = useRouter();
@@ -60,17 +61,86 @@ export default function CreatePatient() {
             const nicValue = NIC.trim();
             const phone = contact.trim() || '';
 
-            // Look up public index for existing patient by NIC
-            const existing = await db.collection('publicPatients').where('nic', '==', nicValue).limit(1).get();
-            if (!existing.empty) {
-                // existing patient found — link to that patient
-                const patientDoc = existing.docs[0];
-                const patientId = patientDoc.id;
+            // Step 1: Check for duplicate patient in doctor's existing patients list
+            try {
+                const duplicateCheck = await db
+                    .collection('Doctor')
+                    .doc(doctorId)
+                    .collection('patients')
+                    .where('nic', '==', nicValue)
+                    .limit(1)
+                    .get();
 
+                if (!duplicateCheck.empty) {
+                    // Patient already exists in this doctor's list
+                    Alert.alert(
+                        'Duplicate Patient',
+                        'This patient is already in your patient list. You cannot add the same patient twice.'
+                    );
+                    setLoading(false);
+                    return;
+                }
+            } catch (err) {
+                console.error('Error checking duplicate patient:', err);
+                // Continue with normal flow if check fails
+            }
+
+            // Step 2: Check if patient exists in Patient collection (existing registered patient)
+            let existingPatientId: string | null = null;
+            try {
+                console.log('🔍 Checking Patient collection for NIC:', nicValue);
+                console.log('📋 Scanning all Patient documents and their personal data...');
+                
+                // Must scan all patients because NIC is in personal field
+                const allPatients = await db.collection('Patient').get();
+                console.log('📋 Total Patient documents found:', allPatients.docs.length);
+                
+                for (const patientDoc of allPatients.docs) {
+                    const patientId = patientDoc.id;
+                    const patientData = patientDoc.data();
+                    
+                    console.log('🔍 Checking patient:', patientId);
+                    
+                    // personal is a field (map/object), not a subcollection
+                    const personalData = patientData.personal;
+                    
+                    if (personalData && typeof personalData === 'object') {
+                        console.log('   ✅ Personal data found. Fields:', Object.keys(personalData));
+                        console.log('   NIC value stored:', personalData.nic);
+                        console.log('   Searching for NIC value:', nicValue);
+                        
+                        // Check if NIC matches
+                        if (personalData.nic === nicValue) {
+                            existingPatientId = patientId;
+                            console.log('✅ FOUND matching patient with NIC:', patientId);
+                            break;
+                        }
+                    } else {
+                        console.log('   ⚠️ No personal data found for patient:', patientId);
+                    }
+                }
+                
+                if (existingPatientId) {
+                    console.log('✅ Found existing patient in Patient collection:', existingPatientId);
+                } else {
+                    console.log('⚠️ No existing patient found in Patient collection for NIC:', nicValue);
+                }
+            } catch (err: any) {
+                console.error('❌ Error checking Patient collection:', err);
+                // If permission denied, we can fallback to public patients
+                if (err?.code === 'permission-denied') {
+                    console.warn('⚠️ Permission denied accessing Patient collection. Proceeding with publicPatients only.');
+                }
+            }
+
+            // If existing patient found in Patient collection — create link with pending status
+            if (existingPatientId) {
+                console.log('📝 Creating doctor patient link for existing Patient collection patient:', existingPatientId);
                 const linkRef = await db.collection('Doctor').doc(doctorId).collection('patients').add({
-                    patientId,
+                    patientId: existingPatientId,
                     nic: nicValue,
-                    fullName: patientDoc.data().fullName || fullName.trim(),
+                    fullName: fullName.trim(),
+                    age: age ? parseInt(age) : 0,
                     contactNumber: phone,
                     status: 'pending',
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -84,16 +154,92 @@ export default function CreatePatient() {
                     verified: false,
                 });
 
-                // In production, send SMS from a secure backend (Cloud Function) and do not show code in the client.
-                Alert.alert('Verification started', `Verification code generated for ${phone}. (dev: ${verificationCode})`);
+                // Send OTP via SMS
+                if (phone) {
+                    try {
+                        const smsResult = await sendOTP(phone, verificationCode, fullName.trim());
+                        if (smsResult.success) {
+                            if (smsResult.demo_mode) {
+                                console.log('📱 [DEMO MODE]', smsResult.message);
+                                Alert.alert('Verification Started', `OTP code generated. ${smsResult.message}`);
+                            } else {
+                                console.log('✅ OTP SMS sent successfully');
+                                Alert.alert('Verification Started', `OTP code has been sent to ${phone}`);
+                            }
+                        } else {
+                            console.error('Failed to send OTP SMS:', smsResult.message);
+                            Alert.alert('Verification Started', `OTP code generated: ${verificationCode}. SMS sending failed: ${smsResult.message}`);
+                        }
+                    } catch (smsError: any) {
+                        console.error('Error sending OTP SMS:', smsError);
+                        Alert.alert('Verification Started', `OTP code generated: ${verificationCode}. Please note: SMS service unavailable.`);
+                    }
+                } else {
+                    Alert.alert('Warning', 'No phone number provided. OTP code generated but not sent.');
+                }
+                
                 router.back();
                 return;
             }
 
-            // No existing public patient — create provisional publicPatients index entry and invite
+            // Step 3: Check publicPatients collection for existing public profile
+            const existingPublic = await db.collection('publicPatients').where('nic', '==', nicValue).limit(1).get();
+            if (!existingPublic.empty) {
+                // existing public patient found — link to that patient with pending status
+                const patientDoc = existingPublic.docs[0];
+                const patientId = patientDoc.id;
+
+                const linkRef = await db.collection('Doctor').doc(doctorId).collection('patients').add({
+                    patientId,
+                    nic: nicValue,
+                    fullName: patientDoc.data().fullName || fullName.trim(),
+                    age: age ? parseInt(age) : 0,
+                    contactNumber: phone,
+                    status: 'pending',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+
+                const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+                await db.collection('Doctor').doc(doctorId).collection('patients').doc(linkRef.id).collection('verification').doc('sms').set({
+                    code: verificationCode,
+                    phone,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    verified: false,
+                });
+
+                // Send OTP via SMS
+                if (phone) {
+                    try {
+                        const smsResult = await sendOTP(phone, verificationCode, patientDoc.data().fullName || fullName.trim());
+                        if (smsResult.success) {
+                            if (smsResult.demo_mode) {
+                                console.log('📱 [DEMO MODE]', smsResult.message);
+                                Alert.alert('Verification Started', `OTP code generated. ${smsResult.message}`);
+                            } else {
+                                console.log('✅ OTP SMS sent successfully');
+                                Alert.alert('Verification Started', `OTP code has been sent to ${phone}`);
+                            }
+                        } else {
+                            console.error('Failed to send OTP SMS:', smsResult.message);
+                            Alert.alert('Verification Started', `OTP code generated: ${verificationCode}. SMS sending failed: ${smsResult.message}`);
+                        }
+                    } catch (smsError: any) {
+                        console.error('Error sending OTP SMS:', smsError);
+                        Alert.alert('Verification Started', `OTP code generated: ${verificationCode}. Please note: SMS service unavailable.`);
+                    }
+                } else {
+                    Alert.alert('Warning', 'No phone number provided. OTP code generated but not sent.');
+                }
+                
+                router.back();
+                return;
+            }
+
+            // Step 4: No existing patient — create provisional publicPatients index entry and invite
             const publicPayload = {
                 nic: nicValue,
                 fullName: fullName.trim(),
+                age: age ? parseInt(age) : 0,
                 phone,
                 invitedByDoctor: doctorId,
                 invitedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -104,6 +250,7 @@ export default function CreatePatient() {
                 patientId: publicRef.id,
                 nic: nicValue,
                 fullName: fullName.trim(),
+                age: age ? parseInt(age) : 0,
                 contactNumber: phone,
                 status: 'invited',
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -117,7 +264,30 @@ export default function CreatePatient() {
                 verified: false,
             });
 
-            Alert.alert('Patient invited', `An invitation was created. Patient should sign up and verify. (dev code: ${verificationCode})`);
+            // Send OTP via SMS for invited patients
+            if (phone) {
+                try {
+                    const smsResult = await sendOTP(phone, verificationCode, fullName.trim());
+                    if (smsResult.success) {
+                        if (smsResult.demo_mode) {
+                            console.log('📱 [DEMO MODE]', smsResult.message);
+                            Alert.alert('Patient Invited', `Invitation created. ${smsResult.message}`);
+                        } else {
+                            console.log('✅ OTP SMS sent successfully');
+                            Alert.alert('Patient Invited', `Invitation sent. OTP code has been sent to ${phone}`);
+                        }
+                    } else {
+                        console.error('Failed to send OTP SMS:', smsResult.message);
+                        Alert.alert('Patient Invited', `Invitation created. OTP: ${verificationCode}. SMS sending failed.`);
+                    }
+                } catch (smsError: any) {
+                    console.error('Error sending OTP SMS:', smsError);
+                    Alert.alert('Patient Invited', `Invitation created. OTP: ${verificationCode}. SMS service unavailable.`);
+                }
+            } else {
+                Alert.alert('Patient Invited', `An invitation was created. Patient should sign up and verify.`);
+            }
+            
             router.back();
         } catch (err) {
             console.error('Error creating patient', err);

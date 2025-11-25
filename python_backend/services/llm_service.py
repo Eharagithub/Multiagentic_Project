@@ -3,12 +3,30 @@ import os
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables from explicit path
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
+
+# Verify and fix GOOGLE_APPLICATION_CREDENTIALS path if needed
+google_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+if google_creds:
+    # First try as-is
+    creds_path = Path(google_creds)
+    if not creds_path.exists():
+        # Try converting forward slashes to backslashes for Windows
+        creds_path_windows = Path(google_creds.replace('/', '\\'))
+        if creds_path_windows.exists():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(creds_path_windows)
+        else:
+            print(f"[WARNING] Credentials file not found at either path:")
+            print(f"  - {google_creds}")
+            print(f"  - {creds_path_windows}")
+
 from langchain_google_vertexai import VertexAI
 from pydantic import BaseModel, Field
 import logging
-
-# Load environment variables
-load_dotenv()
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -108,6 +126,43 @@ Focus on medical accuracy and completeness."""
             if not self.llm:
                 raise ValueError("LLM service not initialized")
 
+            # FIRST: Check if query is even about health topics (scope check)
+            logger.info("Performing scope check for health-related content")
+            scope_prompt = f"""Is this query about health/medical topics?
+
+Query: "{raw_text}"
+
+Respond with ONLY this JSON (no explanation):
+{{"is_health_related": true or false}}"""
+
+            try:
+                scope_response = self.llm(scope_prompt)
+                logger.info(f"Scope check response: {scope_response[:200]}")
+                
+                try:
+                    start_idx = scope_response.find('{')
+                    end_idx = scope_response.rfind('}') + 1
+                    if start_idx != -1 and end_idx != -1:
+                        scope_analysis = json.loads(scope_response[start_idx:end_idx])
+                    else:
+                        scope_analysis = {"is_health_related": False}
+                except json.JSONDecodeError:
+                    scope_analysis = {"is_health_related": False}
+                
+                # If out of scope, return indicator
+                if not scope_analysis.get("is_health_related", False):
+                    logger.info("Query detected as OUT OF SCOPE")
+                    return {
+                        "scope": "out_of_scope",
+                        "out_of_scope": True,
+                        "agents": [],
+                        "workflow": "none",
+                        "actions": [],
+                        "data_flow": []
+                    }
+            except Exception as e:
+                logger.warning(f"Scope check LLM error: {str(e)}, continuing with analysis")
+
             # First, check for explicit patient_journey keywords without LLM call
             journey_keywords = ['history', 'journey', 'timeline', 'past', 'appointment', 'treatment', 'medication', 'visit', 'result', 'record', 'medical history', 'health journey']
             is_journey_query = any(keyword in raw_text.lower() for keyword in journey_keywords)
@@ -189,6 +244,46 @@ Focus on medical accuracy and completeness."""
             
             # Use Gemini Pro for diagnosis queries (with timeout)
             logger.info("Using LLM for intent analysis")
+            
+            # First, check if this query is asking for something we CAN handle
+            actionability_prompt = f"""Can we answer this query by:
+1. Analyzing current symptoms (symptom_analyzer)
+2. Predicting diseases from symptoms (disease_prediction)  
+3. Retrieving patient's past medical history/journey (patient_journey)
+
+Query: "{raw_text}"
+
+Does the query fit one of these three categories? Respond with ONLY:
+{{"can_handle": true or false, "reason": "brief reason"}}"""
+
+            try:
+                actionability_response = self.llm(actionability_prompt)
+                logger.info(f"Actionability check: {actionability_response[:200]}")
+                
+                try:
+                    start_idx = actionability_response.find('{')
+                    end_idx = actionability_response.rfind('}') + 1
+                    if start_idx != -1 and end_idx != -1:
+                        actionability = json.loads(actionability_response[start_idx:end_idx])
+                    else:
+                        actionability = {"can_handle": False}
+                except json.JSONDecodeError:
+                    actionability = {"can_handle": False}
+                
+                # If we can't handle it, mark as out of scope
+                if not actionability.get("can_handle", False):
+                    logger.info(f"Query cannot be handled by available agents: {actionability.get('reason', 'unknown')}")
+                    return {
+                        "scope": "out_of_scope",
+                        "out_of_scope": True,
+                        "agents": [],
+                        "workflow": "none",
+                        "actions": [],
+                        "data_flow": []
+                    }
+            except Exception as e:
+                logger.warning(f"Actionability check error: {str(e)}, continuing with analysis")
+
             prompt = f"""Medical chat query analysis - Be concise!
 
 User: "{raw_text}"

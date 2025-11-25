@@ -46,6 +46,11 @@ export default function MedicalProfile() {
     setAgree(false);
   });
 
+  // Debug: Monitor userId from route params
+  useEffect(() => {
+    console.log('HealthProfile mounted/updated - userId:', userId);
+  }, [userId]);
+
   // Register and clean up the event listener in a single useEffect
 //   useEffect(() => {
 //     // Get a stable reference to the callback
@@ -128,16 +133,25 @@ export default function MedicalProfile() {
         updatedAt: new Date().toISOString()
       };
 
+      console.log('Starting health profile save for userId:', userId);
       const result = await AuthService.saveHealthInformation(userId as string, healthData);
+      console.log('Health profile save result:', result);
     
-    if (result.success) {
-      console.log('Health profile saved and registration completed for user:', userId);
-      router.push('/patientProfile/patientHome');
-    } else {
-      Alert.alert('Save Failed', result.error || 'Failed to save health information');
-    }
+      if (result.success) {
+        console.log('Health profile saved and registration completed for user:', userId);
+        setTimeout(() => {
+          router.push('/patientProfile/patientHome');
+        }, 500);
+      } else {
+        console.error('Health profile save failed:', result.error);
+        Alert.alert('Save Failed', result.error || 'Failed to save health information');
+      }
   } catch (error) {
     console.error('Unexpected error saving health profile:', error);
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
     Alert.alert('Error', 'An unexpected error occurred. Please try again.');
   } finally {
     setIsLoading(false);

@@ -1,8 +1,32 @@
 {
+  "cli": {
+    "version": ">= 5.0.0",
+    "requireCommit": false
+  },
   "build": {
     "production": {
+      "name": "Production Build",
+      "node": "20.x",
+      "npm": "10.x",
+      "baseURL": "/Frontend",
+      "preBuildHook": "./pre-build.js",
+      "runFromCI": true,
+      "cache": {
+        "disabled": false
+      },
+      "ios": {
+        "image": "macos-14",
+        "resourceClass": "m1-large",
+        "simulator": false,
+        "buildConfiguration": "Release"
+      },
       "android": {
-        "buildType": "app-bundle"
+        "image": "ubuntu-24.04",
+        "buildType": "app-bundle",
+        "gradleCache": "default"
+      },
+      "env": {
+        "NODE_ENV": "production"
       }
     },
     "development": {

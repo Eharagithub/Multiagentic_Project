@@ -1,9 +1,42 @@
 
 import os
 from dotenv import load_dotenv
-load_dotenv()
-print("GOOGLE_APPLICATION_CREDENTIALS:", os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
-print("GOOGLE_CLOUD_PROJECT:", os.getenv("GOOGLE_CLOUD_PROJECT"))
+from pathlib import Path
+
+# Load .env file from explicit path
+env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+print(f"[DEBUG] Looking for .env at: {env_path}")
+print(f"[DEBUG] .env exists: {env_path.exists()}")
+load_dotenv(dotenv_path=env_path)
+
+# Get credentials from environment variables
+google_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+google_project = os.getenv("GOOGLE_CLOUD_PROJECT")
+
+print("[DEBUG] Environment Variables After Loading:")
+print(f"GOOGLE_APPLICATION_CREDENTIALS: {google_creds}")
+print(f"GOOGLE_CLOUD_PROJECT: {google_project}")
+print(f"NEO4J_URI: {os.getenv('NEO4J_URI')}")
+print(f"NEO4J_USER: {os.getenv('NEO4J_USER')}")
+print(f"NEO4J_PASSWORD: {os.getenv('NEO4J_PASSWORD')[:10] + '***' if os.getenv('NEO4J_PASSWORD') else None}")
+print(f"NEO4J_DATABASE: {os.getenv('NEO4J_DATABASE')}")
+
+# Verify and fix GOOGLE_APPLICATION_CREDENTIALS path if needed
+if google_creds:
+    # First try as-is
+    creds_path = Path(google_creds)
+    if not creds_path.exists():
+        # Try converting forward slashes to backslashes for Windows
+        creds_path_windows = Path(google_creds.replace('/', '\\'))
+        if creds_path_windows.exists():
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(creds_path_windows)
+            print(f"[DEBUG] Updated GOOGLE_APPLICATION_CREDENTIALS to Windows path: {creds_path_windows}")
+        else:
+            print(f"[WARNING] Credentials file not found at: {google_creds}")
+            print(f"[WARNING] Also tried: {creds_path_windows}")
+    else:
+        print(f"[DEBUG] Credentials file found at: {creds_path}")
+print("NEO4J_DATABASE:", os.getenv("NEO4J_DATABASE"))
 
 from fastapi import FastAPI
 from pydantic import BaseModel

@@ -41,7 +41,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "backendUrl": "http://10.181.219.156:8001",
+      "backendUrl": "http://10.142.247.156:8000",
       "router": {},
       "eas": {
         "projectId": "1ab48f2d-774d-4476-aaaf-4904d148e21f"

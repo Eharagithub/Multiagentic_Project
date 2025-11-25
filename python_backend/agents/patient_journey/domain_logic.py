@@ -13,31 +13,60 @@ class PatientJourneyLogic:
             user = os.getenv("NEO4J_USER")
             password = os.getenv("NEO4J_PASSWORD")
             
+            logger.info(f"[DEBUG] Neo4j Configuration:")
+            logger.info(f"[DEBUG] URI: {uri}")
+            logger.info(f"[DEBUG] User: {user}")
+            logger.info(f"[DEBUG] Password present: {bool(password)}")
             logger.info(f"Attempting Neo4j connection to: {uri}")
+            print(f"[DEBUG] Neo4j URI: {uri}")
+            print(f"[DEBUG] Neo4j User: {user}")
+            print(f"[DEBUG] Neo4j Password present: {bool(password)}")
             
             if not all([uri, user, password]):
-                logger.error(f"Missing Neo4j credentials - URI: {bool(uri)}, USER: {bool(user)}, PASSWORD: {bool(password)}")
+                missing = []
+                if not uri: missing.append("NEO4J_URI")
+                if not user: missing.append("NEO4J_USER")
+                if not password: missing.append("NEO4J_PASSWORD")
+                error_msg = f"Missing Neo4j credentials: {', '.join(missing)}"
+                logger.error(error_msg)
+                print(f"[ERROR] {error_msg}")
                 print("[WARNING] Neo4j environment variables not set. Using mock data.")
                 self.driver = None
                 return
-                
-            self.driver = GraphDatabase.driver(uri, auth=(user, password))
+            
+            # Create driver - bolt+s:// is secure scheme, use encrypted parameter
+            self.driver = GraphDatabase.driver(
+                uri, 
+                auth=(user, password),
+                encrypted=True,
+                database=os.getenv("NEO4J_DATABASE", "neo4j")
+            )
             logger.info("✓ Neo4j connection established successfully")
             print("[SUCCESS] Neo4j connection established")
+                
         except Exception as e:
             logger.error(f"[ERROR] Failed to connect to Neo4j: {e}")
             print(f"[ERROR] Failed to connect to Neo4j: {e}")
+            print("[WARNING] Neo4j connection failed. Using mock data for patient journey.")
             self.driver = None
 
     def get_patient_journey(self, patient_id: str) -> Dict[str, Any]:
         if not self.driver:
-            # Return mock data for testing
+            # Return mock data for testing when Neo4j unavailable
+            print(f"[DEBUG] Returning mock data for patient: {patient_id}")
             return {
-                "patient_name": "John Doe",
+                "patient_name": "John Doe" if patient_id == "pat1" else patient_id,
+                "patient_id": patient_id,
                 "journey_steps": [
-                    "Mock Data: No Neo4j connection available",
-                    "Please configure NEO4J_URI, NEO4J_USER, and NEO4J_PASSWORD environment variables"
-                ]
+                    "2024-01-15: Admitted to General Hospital with flu symptoms",
+                    "2024-01-14: Had COVID-19 test - Result: Negative",
+                    "2024-01-10: Diagnosed with Influenza A",
+                    "2024-01-08: Appointment with Dr. Smith for routine checkup",
+                    "2024-01-05: Prescribed Amoxicillin 500mg twice daily",
+                    "2024-01-03: Started treatment for upper respiratory infection",
+                    "2024-01-01: Had blood work done at Central Lab"
+                ],
+                "source": "mock_data"
             }
             
         with self.driver.session() as session:

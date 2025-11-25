@@ -20,9 +20,10 @@ const axiosRetry = async (error: AxiosError) => {
 };
 
 // Create API instance for prompt processor (8000)
+// Increased timeout to 120s for Vertex AI LLM processing
 const api: AxiosInstance = axios.create({
   baseURL: BACKEND_BASE_URL, // Points to Prompt Processor (8000)
-  timeout: 30000,
+  timeout: 120000,  // 120 seconds - Vertex AI can take time for enrichment
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
@@ -34,7 +35,7 @@ const api: AxiosInstance = axios.create({
 // Create a second instance for orchestration agent calls (8001)
 const orchestrationApi: AxiosInstance = axios.create({
   baseURL: BACKEND_BASE_URL.replace(':8000', ':8001'), // Points to Orchestration Agent (8001)
-  timeout: 30000,
+  timeout: 120000,  // 120 seconds - agents may also take time for processing
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
@@ -42,6 +43,11 @@ const orchestrationApi: AxiosInstance = axios.create({
   maxContentLength: Infinity,
   maxBodyLength: Infinity
 });
+
+// Log API configuration
+console.log('[API Config] api baseURL (Prompt Processor):', api.defaults.baseURL);
+console.log('[API Config] orchestrationApi baseURL (Orchestrator):', orchestrationApi.defaults.baseURL);
+console.log('[API Config] BACKEND_BASE_URL source:', BACKEND_BASE_URL);
 
 // Add request interceptor to configure retry
 api.interceptors.request.use((config) => {
@@ -133,7 +139,10 @@ export interface ChatResponse {
   status: string;
   results?: AgentResult[];
   error?: string;
+  out_of_scope?: boolean;
+  scope?: string;
   mcp_acl?: {
+    scope?: string;
     agents: string[];
     workflow: string;
     actions: Array<{
@@ -151,7 +160,7 @@ export interface ChatResponse {
 
 /**
  * Handles the complete chat flow:
- * 1. Sends message to prompt processor (8000) for enrichment
+ * 1. Sends request to prompt processor (8000) for enrichment (may take time for Vertex AI processing)
  * 2. Gets results from orchestration agent (8001)
  */
 export async function callChatOrchestrate(payload: ChatRequest): Promise<ChatResponse> {
@@ -167,30 +176,61 @@ export async function callChatOrchestrate(payload: ChatRequest): Promise<ChatRes
 
     if (payload.get_status || payload.is_retry) {
       // For status checks and retries, go directly to orchestration agent
+      console.log('[Orchestrate] Status check/retry - sending directly to orchestrationApi');
       const resp = await orchestrationApi.post<ChatResponse>('/orchestrate', defaultedPayload);
       return resp.data;
     }
 
     // For new requests:
     // 1. Send to prompt processor for enrichment
-    const enrichedResp = await api.post<{ mcp_acl: any }>('/process_prompt', defaultedPayload);
-    console.log('Enriched response:', enrichedResp.data);
+    console.log('[Orchestrate] Step 1: Sending to prompt processor (8000) for enrichment...');
+    console.log('[Orchestrate] URL:', api.defaults.baseURL + '/process_prompt');
+    console.log('[Orchestrate] Note: Vertex AI token processing may take 10-30 seconds. Do not close the app.');
+    
+    try {
+      const enrichedResp = await api.post<{ mcp_acl: any }>('/process_prompt', defaultedPayload);
+      console.log('[Orchestrate] ✅ Step 1 complete! Enriched response received');
+      console.log('[Orchestrate] MCP/ACL structure:', enrichedResp.data);
 
-    if (!enrichedResp.data.mcp_acl) {
-      throw new Error('Prompt processor did not return MCP/ACL structure');
+      if (!enrichedResp.data.mcp_acl) {
+        throw new Error('Prompt processor did not return MCP/ACL structure');
+      }
+
+      // 2. Send enriched MCP/ACL to orchestration agent
+      console.log('[Orchestrate] Step 2: Sending enriched MCP/ACL to orchestration agent (8001)...');
+      console.log('[Orchestrate] URL:', orchestrationApi.defaults.baseURL + '/orchestrate');
+      
+      const orchestrationResp = await orchestrationApi.post<ChatResponse>('/orchestrate', {
+        ...defaultedPayload,
+        mcp_acl: enrichedResp.data.mcp_acl
+      });
+
+      console.log('[Orchestrate] ✅ Step 2 complete! Final response received');
+      console.log('[Orchestrate] Results:', orchestrationResp.data);
+      return orchestrationResp.data;
+    } catch (stepError: any) {
+      console.error('[Orchestrate] ❌ Error during processing:', {
+        message: stepError.message,
+        code: stepError.code,
+        status: stepError.response?.status,
+        statusText: stepError.response?.statusText,
+        isTimeout: stepError.code === 'ECONNABORTED' || stepError.message?.includes('timeout'),
+        fullError: stepError
+      });
+      throw stepError;
     }
-
-    // 2. Send enriched MCP/ACL to orchestration agent
-    const orchestrationResp = await orchestrationApi.post<ChatResponse>('/orchestrate', {
-      ...defaultedPayload,
-      mcp_acl: enrichedResp.data.mcp_acl
-    });
-
-    return orchestrationResp.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in chat orchestration:', error);
     if (axios.isAxiosError(error)) {
-      throw new Error(error.response?.data?.detail || error.message);
+      const errorMsg = error.response?.data?.detail || error.message;
+      console.error('[Orchestrate] Axios error details:', {
+        message: errorMsg,
+        status: error.response?.status,
+        code: error.code,
+        isNetworkError: !error.response,
+        isTimeout: error.code === 'ECONNABORTED'
+      });
+      throw new Error(errorMsg);
     }
     throw error;
   }

@@ -7,7 +7,7 @@ import {
   SafeAreaView,
   Image,
   ScrollView,
-  Alert,
+  Alert, Linking,
   ActivityIndicator
 } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
@@ -133,10 +133,23 @@ const LoginScreen = () => {
     );
   };
 
-  // Handle Google sign in
-  const handleGoogleSignIn = () => {
-    // Implement Google Sign-In logic here
-    Alert.alert('Info', 'Google Sign-In functionality to be implemented');
+  // Add this function to handle phone number press
+  const handlePhonePress = async () => {
+    const phoneNumber = '+94774855204';
+    const url = `tel:${phoneNumber}`;
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Phone calls are not supported on this device');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to make a phone call');
+      console.error('Error opening phone app:', error);
+    }
   };
 
   return (
@@ -241,17 +254,18 @@ const LoginScreen = () => {
           <View style={styles.divider} />
         </View>
 
-        {/* Google Sign-in */}
-        <TouchableOpacity
-          style={styles.googleButton}
-          onPress={handleGoogleSignIn}
-        >
-          <Image
-            style={styles.googleLogo}
-            source={require("../../assets/images/google-logo.jpg")}
-          />
-          <Text style={styles.googleButtonText}>Sign in with Google</Text>
-        </TouchableOpacity>
+        <View style={styles.infoContainer}>
+          <Text style={styles.infoText}>
+            Having trouble?{'\n'}
+            <Text style={styles.supportLink}>Contact our support team  </Text>
+            <Text
+              style={styles.phoneLink}
+              onPress={handlePhonePress}
+            >
+              +94 77 485 5204
+            </Text>
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

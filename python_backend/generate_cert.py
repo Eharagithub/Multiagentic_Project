@@ -8,7 +8,7 @@ def generate_self_signed_cert():
 
     # Generate certificate
     cert = crypto.X509()
-    cert.get_subject().CN = "192.168.1.25"
+    cert.get_subject().CN = "10.142.247.156"
     cert.set_serial_number(1000)
     cert.gmtime_adj_notBefore(0)
     cert.gmtime_adj_notAfter(365*24*60*60)  # Valid for one year

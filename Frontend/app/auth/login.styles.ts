@@ -102,23 +102,30 @@ export default StyleSheet.create({
     fontWeight: "bold",
     fontSize: 14,
   },
-  googleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f5f7fa",
-    borderRadius: 8,
-    paddingVertical: 12,
-    justifyContent: "center",
-    marginBottom: 24,
-  },
-  googleLogo: {
-    width: 22,
-    height: 22,
-    marginRight: 10,
-  },
-  googleButtonText: {
-    fontSize: 16,
-    color: "#222",
-    fontWeight: "bold",
-  },
+  infoContainer: {
+  marginTop: 20,
+  padding: 16,
+  
+  borderRadius: 8,
+  alignItems: 'center',
+  flexDirection: 'row',
+  justifyContent: 'center',
+},
+
+infoText: {
+  textAlign: 'center',
+  color: '#666',
+  fontSize: 14,
+  marginLeft: 8,
+},
+
+supportLink: {
+  color: '##666',
+  fontWeight: '500',
+},
+phoneLink: {
+  color: '#1e012aff',
+  fontWeight: '500',
+  textDecorationLine: 'underline',
+},
 });

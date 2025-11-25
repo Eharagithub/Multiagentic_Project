@@ -18,7 +18,15 @@ llm = ChatVertexAI(
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
-driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+
+# Create driver - bolt+s:// is secure scheme, use encrypted parameter
+driver = GraphDatabase.driver(
+    NEO4J_URI, 
+    auth=(NEO4J_USER, NEO4J_PASSWORD),
+    encrypted=True,
+    database=NEO4J_DATABASE
+)
 
 def extract_patient_name(prompt: str) -> Optional[str]:
     # Simple heuristic: look for 'John Doe' or similar in the prompt

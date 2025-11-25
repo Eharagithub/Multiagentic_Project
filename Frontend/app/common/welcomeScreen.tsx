@@ -1,22 +1,22 @@
 import { useRouter } from 'expo-router';
-import { Feather, FontAwesome } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Dimensions, FlatList, Image, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { chatService } from '../../services/chatService';
+import { callChatOrchestrate, AgentResult } from '../../services/backendApi';
 import Animated, { 
   useAnimatedStyle, 
   useSharedValue, 
-  withSpring, 
   withTiming,
   withRepeat,
-  withSequence
+  withSequence,
 } from 'react-native-reanimated';
+import { withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { chatStyles } from './AgentView';
 import styles from './welcomeScreen.styles';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 
 interface WalkthroughItem {
@@ -74,7 +74,7 @@ export default function WelcomeScreen() {
     {
       id: 1,
       type: 'bot',
-      text: "Hi! I'm your LifeFile health assistant. How can I help you track your health today?",
+      text: "Hi! I'm your LifeFile health assistant. You can enter your symptoms and journey queries. (Headache, Fever or Tell my medical history)",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -114,7 +114,7 @@ export default function WelcomeScreen() {
     return () => {
       clearInterval(interval);
     };
-  }, [currentSlide]);
+  }, [currentSlide, logoScale, contentOpacity]);
 
   const logoAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: logoScale.value }],
@@ -178,94 +178,182 @@ export default function WelcomeScreen() {
     }
   }, [chatOpen, chatButtonScale, rippleScale, rippleOpacity]);
 
-  const getBotResponse = async (userMessage: string): Promise<string> => {
-    const msg = userMessage.toLowerCase();
+  const formatResults = useCallback((results: AgentResult[]): string => {
+    if (!results?.length) return 'No response available from the analysis.';
     
-    // Check if the message is about symptoms or health concerns
-    if (msg.includes('experiencing') || 
-        msg.includes('symptoms') || 
-        msg.includes('feeling') || 
-        msg.includes('pain') || 
-        msg.includes('sick') ||
-        msg.includes('unwell') ||
-        msg.includes('suffering') ||
-        msg.includes('fever') ||
-        msg.includes('headache') ||
-        msg.includes('fatigue')) {
-      console.log('Detected health concern, routing to prediction service...');
-      // Use the chatService for health-related queries
-      return await chatService.processHealthQuery(userMessage);
-    } 
-    // Handle other types of queries
-    else if (msg.includes('blood pressure') || msg.includes('bp')) {
-      return "I can help you log your blood pressure readings. What were your systolic and diastolic numbers?";
-    } else if (msg.includes('weight')) {
-      return "Great! I'll help you track your weight. What's your current weight?";
-    } else if (msg.includes('medication') || msg.includes('medicine')) {
-      return "I can help you manage your medications. Would you like to add a new medication or check your current schedule?";
-    } else if (msg.includes('appointment')) {
-      return "I can help you track upcoming appointments. When is your next doctor visit?";
-    } else if (msg.includes('help') || msg.includes('what can you do')) {
-      return "I can help you with:\n• Analyzing symptoms and health concerns\n• Logging vital signs (blood pressure, weight, etc.)\n• Managing medications\n• Tracking appointments\n• General health questions";
-    } else {
-      return "I'm here to help with your health tracking needs. You can tell me about any symptoms you're experiencing, or ask about logging vitals, medications, appointments, or any health-related questions!";
-    }
-  };
+    const patientInfo = results.find(r => r.result?.patient_id)?.result?.patient_id;
+    const patientHeader = patientInfo ? `Patient ID: ${patientInfo}\n\n` : '';
+    
+    const formattedMessages = results.map((r: AgentResult) => {
+      // Check for errors in the result first
+      if (r.result?.error) {
+        return `❌ ${r.result.error}`;
+      }
+      
+      if (r.agent === 'patient_journey' && r.result) {
+        // Format patient journey results
+        const journeySteps = r.result.journey_steps || [];
+        const patientName = r.result.patient_name || 'Patient';
+        const confidence = r.result.confidence ? (r.result.confidence * 100).toFixed(0) : '0';
+        
+        // Only display if we have journey steps
+        if (!journeySteps || journeySteps.length === 0) {
+          return 'ℹ️ No patient journey data available.';
+        }
+        
+        const formattedSteps = journeySteps.map((step: string) => {
+          // Add emoji prefix based on content
+          if (step.includes('Diagnosed')) {
+            return `🔍 ${step}`;
+          } else if (step.includes('appointment')) {
+            return `📅 ${step}`;
+          } else if (step.includes('Test') || step.includes('test')) {
+            return `🧪 ${step}`;
+          } else if (step.includes('treatment')) {
+            return `💊 ${step}`;
+          } else if (step.includes('Prescribed')) {
+            return `💉 ${step}`;
+          }
+          return `• ${step}`;
+        }).join('\n\n');
+        
+        return `📋 Patient Journey: ${patientName}\n\n${formattedSteps}\n\nConfidence: ${confidence}%`;
+      }
+      if (r.agent === 'symptom_analyzer' && r.result) {
+        return `Symptom Analysis:\n${r.result.identified_symptoms?.join(', ') || 'No symptoms identified'}\nSeverity: ${r.result.severity_level || 'Unknown'}`;
+      }
+      if (r.agent === 'disease_prediction' && r.result) {
+        return `\n💊 Possible Conditions:\n${r.result.predicted_diseases?.join('\n') || 'No predictions available'}\nConfidence: ${r.result.confidence ? (r.result.confidence * 100).toFixed(0) + '%' : 'Unknown'}`;
+      }
+      return r.result ? JSON.stringify(r.result, null, 2) : 'No data available';
+    }).filter(msg => msg && msg.length > 0);
+    
+    return patientHeader + formattedMessages.join('\n\n');
+  }, []);
 
-  const sendMessage = async () => {
-    if (!message.trim()) return;
-
+  const addChatMessage = useCallback((text: string, type: 'user' | 'bot') => {
     const newMessage: ChatMessage = {
-      id: messages.length + 1,
-      type: 'user',
-      text: message,
+      id: Date.now() + Math.random(), // Unique timestamp-based ID
+      type,
+      text,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-
     setMessages(prev => [...prev, newMessage]);
+    setTimeout(() => chatScrollRef.current?.scrollToEnd?.({ animated: true }), 100);
+  }, []);
+
+  const waitForResults = useCallback(async (originalPrompt: string, sessionId: string, retryCount = 0, maxRetries = 10) => {
+    try {
+      const payload = {
+        prompt: originalPrompt,
+        user_id: 'pat1',
+        session_id: sessionId,
+        workflow: 'symptom_analysis',
+        get_status: true  // Request status update
+      };
+
+      console.log(`Retry attempt ${retryCount + 1}/${maxRetries} for session ${sessionId}`);
+      const resp = await callChatOrchestrate(payload);
+      console.log('Status check response:', JSON.stringify(resp, null, 2));
+      
+      // Check for completed results
+      if (resp?.results?.length) {
+        // Check for patient journey results
+        const hasPatientJourney = resp.results.some(r => {
+          const journeySteps = r.result?.journey_steps;
+          return r.agent === 'patient_journey' && 
+                 Array.isArray(journeySteps) && 
+                 journeySteps.length > 0;
+        });
+        
+        // Check for symptom analysis results
+        const hasSymptoms = resp.results.some(r => {
+          const symptoms = r.result?.identified_symptoms;
+          return r.agent === 'symptom_analyzer' && 
+                 Array.isArray(symptoms) && 
+                 symptoms.length > 0;
+        });
+        
+        const hasDiseasePrediction = resp.results.some(r => {
+          const diseases = r.result?.predicted_diseases;
+          return r.agent === 'disease_prediction' && 
+                 Array.isArray(diseases) && 
+                 diseases.length > 0;
+        });
+
+        // Return results if we have patient journey OR both symptoms and disease prediction
+        if (hasPatientJourney || (hasSymptoms && hasDiseasePrediction)) {
+          console.log('Got complete results:', resp.results);
+          addChatMessage(formatResults(resp.results), 'bot');
+          return true;
+        }
+      }
+      
+      if (retryCount >= maxRetries) {
+        console.log('Max retries reached');
+        addChatMessage('The analysis is taking longer than expected. Please try again and provide more detailed information.', 'bot');
+        return false;
+      }
+      
+      // Progressive delay: 3s, 4s, 5s, etc up to 8s
+      const delay = Math.min(3000 + (1000 * retryCount), 8000);
+      console.log(`Waiting ${delay}ms before next retry`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      return waitForResults(originalPrompt, sessionId, retryCount + 1, maxRetries);
+    } catch (err) {
+      console.error('Retry error:', err);
+      if (retryCount < maxRetries - 1) {
+        const delay = Math.min(3000 + (1000 * retryCount), 8000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return waitForResults(originalPrompt, sessionId, retryCount + 1, maxRetries);
+      }
+      return false;
+    }
+  }, [addChatMessage, formatResults]);
+
+  const sendMessage = useCallback(async () => {
+    if (!message.trim()) return;
+    
+    // Add user message
+    const sessionId = String(Date.now());
+    addChatMessage(message.trim(), 'user');
+    const userMessage = message;
     setMessage('');
 
-    // Add a processing indicator
-    const typingMessage: ChatMessage = {
-      id: messages.length + 2,
-      type: 'bot',
-      text: '🤔 Analyzing your symptoms...',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    setMessages(prev => [...prev, typingMessage]);
-
     try {
-      console.log('Processing message:', message);
-      // Get bot response
-      const responseText = await getBotResponse(message);
-      console.log('Received response:', responseText);
-      
-      // Replace typing indicator with actual response
-      const botResponse: ChatMessage = {
-        id: messages.length + 2,
-        type: 'bot',
-        text: responseText,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const payload = {
+        prompt: userMessage.trim(),
+        user_id: 'pat1',
+        session_id: sessionId,
+        workflow: 'symptom_analysis'
       };
       
-      setMessages(prev => prev.slice(0, -1).concat(botResponse));
-    } catch (error: any) {
-      console.error('Error in chat processing:', error);
-      // Handle any errors
-      const errorResponse: ChatMessage = {
-        id: messages.length + 2,
-        type: 'bot',
-        text: `I'm sorry, I encountered an error: ${error.message || 'Unknown error'}. Please try again.`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => prev.slice(0, -1).concat(errorResponse));
+      console.log('📤 Sending to Prompt Processor via callChatOrchestrate:', payload);
+      const resp = await callChatOrchestrate(payload);
+      console.log('Initial response:', JSON.stringify(resp, null, 2));
+
+      if (resp?.results?.length) {
+        // If we got immediate results, show them
+        addChatMessage(formatResults(resp.results), 'bot');
+      } else if (resp?.mcp_acl?.actions?.length) {
+        // Show processing message and start polling for results
+        const processingText = "Processing your request...\n\nPlanned actions:\n" + 
+          resp.mcp_acl.actions
+            .map(action => `- ${action.agent}: ${action.action}`)
+            .join('\n');
+        
+        addChatMessage(processingText, 'bot');
+        // Start polling with original prompt and session ID
+        waitForResults(userMessage.trim(), sessionId);
+      } else {
+        addChatMessage('No response available from the analysis.', 'bot');
+      }
+    } catch (err: any) {
+      console.error('Chat error:', err);
+      addChatMessage(`Error: ${err.message || 'Unknown error occurred'}`, 'bot');
     }
-    
-    // Auto scroll to bottom
-    setTimeout(() => {
-      chatScrollRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  };
+  }, [message, addChatMessage, formatResults, waitForResults]);
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -289,8 +377,6 @@ export default function WelcomeScreen() {
       router.push('../auth/login' as any);
     }
   };
-
-  
 
   //console.log('Firebase Apps:', getApps());
 
@@ -446,7 +532,16 @@ export default function WelcomeScreen() {
                 renderItem={renderChatMessage}
                 keyExtractor={(item) => item.id.toString()}
                 style={chatStyles.messagesList}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={true}
+                scrollEnabled={true}
+                nestedScrollEnabled={true}
+                scrollEventThrottle={16}
+                removeClippedSubviews={false}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode={Platform.OS === 'ios' ? 'on-drag' : 'interactive'}
                 onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
               />
 
@@ -459,7 +554,12 @@ export default function WelcomeScreen() {
                   placeholder="Type your message..."
                   style={chatStyles.textInput}
                   multiline
+                  maxLength={1000}
                   returnKeyType="send"
+                  placeholderTextColor="#999"
+                  onFocus={() => {
+                    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
+                  }}
                 />
                 <TouchableOpacity
                   onPress={sendMessage}

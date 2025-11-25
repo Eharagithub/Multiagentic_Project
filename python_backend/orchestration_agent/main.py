@@ -46,6 +46,23 @@ app.add_middleware(
     expose_headers=["*"],  # Expose all headers
 )
 
+# Add request logging middleware to track all incoming requests
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        logger.info(f"🔷 [Orchestrator] Incoming {request.method} request to {request.url.path}")
+        try:
+            response = await call_next(request)
+            logger.info(f"🔷 [Orchestrator] {request.method} {request.url.path} → {response.status_code}")
+            return response
+        except Exception as e:
+            logger.error(f"🔷 [Orchestrator] Error processing {request.method} {request.url.path}: {str(e)}")
+            raise
+
+app.add_middleware(LoggingMiddleware)
+
 # Add specific headers to health endpoint
 from fastapi.responses import JSONResponse
 @app.options("/health")
@@ -88,12 +105,16 @@ async def orchestrate(request: ChatRequest):
     Handles both initial requests and status checks for ongoing processes.
     """
     try:
+        logger.info(f"🎯 [Orchestrate] Received request for session {request.session_id}")
+        logger.info(f"🎯 [Orchestrate] Prompt: {request.prompt[:100]}...")
+        logger.info(f"🎯 [Orchestrate] Workflow: {request.workflow}")
+        
         # Check if this is a status request
         if request.get_status or request.is_retry:
-            logger.info(f"Status check for session {request.session_id}")
+            logger.info(f"🎯 [Orchestrate] Status check for session {request.session_id}")
             if request.session_id in session_results:
                 results = session_results[request.session_id]
-                logger.info(f"Found results for session {request.session_id}: {results}")
+                logger.info(f"🎯 [Orchestrate] Found results for session {request.session_id}: {results}")
                 return {
                     "status": "success",
                     "results": results
@@ -112,6 +133,7 @@ async def orchestrate(request: ChatRequest):
                 }
 
         # Call prompt processor to get MCP/ACL structure
+        logger.info(f"🎯 [Orchestrate] Calling Prompt Processor (8000) to enrich...")
         prompt_payload = {
             "prompt": request.prompt,
             "user_id": request.user_id,
@@ -125,38 +147,49 @@ async def orchestrate(request: ChatRequest):
                 json=prompt_payload
             )
             if prompt_response.status_code != 200:
+                logger.error(f"🎯 [Orchestrate] Prompt Processor returned {prompt_response.status_code}")
                 raise HTTPException(
                     status_code=prompt_response.status_code,
                     detail=f"Prompt Processor Error: {prompt_response.text}"
                 )
             
+            logger.info(f"🎯 [Orchestrate] ✅ Prompt Processor returned MCP/ACL successfully")
             mcp_acl = prompt_response.json().get("mcp_acl")
             if not mcp_acl:
+                logger.error(f"🎯 [Orchestrate] Prompt Processor response missing MCP/ACL")
                 raise HTTPException(
                     status_code=400,
                     detail="No MCP/ACL structure returned from prompt processor"
                 )
         except requests.RequestException as e:
+            logger.error(f"🎯 [Orchestrate] Error calling Prompt Processor: {str(e)}")
             raise HTTPException(
                 status_code=503,
                 detail=f"Error communicating with prompt processor: {str(e)}"
             )
 
         if not input_handler.validate(mcp_acl):
+            logger.error(f"🎯 [Orchestrate] Invalid MCP/ACL structure")
             raise HTTPException(status_code=400, detail="Invalid MCP/ACL structure")
 
+        logger.info(f"🎯 [Orchestrate] Extracting plan from MCP/ACL...")
         plan = input_handler.extract_plan(mcp_acl)
+        logger.info(f"🎯 [Orchestrate] Sequencing tasks...")
         sequenced_tasks = task_planner.sequence_tasks(plan)
+        logger.info(f"🎯 [Orchestrate] Dispatching tasks to agents...")
         results = agent_dispatcher.dispatch(sequenced_tasks)
+        logger.info(f"🎯 [Orchestrate] ✅ Agent dispatch complete! Got {len(results) if results else 0} results")
         
         # Store results for this session
         session_results[request.session_id] = results
+        logger.info(f"🎯 [Orchestrate] ✅ Returning results to client")
         
         return {
             "status": "success",
             "results": results
         }
     except ValueError as ve:
+        logger.error(f"🎯 [Orchestrate] ValueError: {str(ve)}")
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         logger.error(f"Orchestration error: {str(e)}")

@@ -13,8 +13,8 @@ import {
   Dimensions,
   StyleSheet
 } from 'react-native';
-import { Feather, } from '@expo/vector-icons';
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { Feather } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 
 // Firebase imports
@@ -44,7 +44,7 @@ const EditProfileScreen: React.FC<EditProfileProps> = ({
   const [nic, setNic] = useState<string>('');
   const [gender, setGender] = useState<string>('');
   const [email, setEmail] = useState<string>(''); // State for email
-  const [isDatePickerVisible, setDatePickerVisibility] = useState<boolean>(false);
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [isGenderPickerVisible, setGenderPickerVisibility] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [role, setRole] = useState<'patient' | 'doctor'>('patient');
@@ -135,25 +135,17 @@ const EditProfileScreen: React.FC<EditProfileProps> = ({
     }
   }, [visible, userId, currentUser]);
 
-  const showDatePicker = () => {
-    setDatePickerVisibility(true);
-  };
-
-  const hideDatePicker = () => {
-    setDatePickerVisibility(false);
-  };
-
-  const handleDateConfirm = (date: Date) => {
-    const formattedDate = formatDate(date);
-    setDateOfBirth(formattedDate);
-    hideDatePicker();
-  };
-
-  const formatDate = (date: Date): string => {
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    if (selectedDate) {
+      // Convert to DD/MM/YYYY format for display
+      const day = selectedDate.getDate().toString().padStart(2, '0');
+      const month = (selectedDate.getMonth() + 1).toString().padStart(2, '0');
+      const year = selectedDate.getFullYear();
+      setDateOfBirth(`${day}/${month}/${year}`);
+    }
   };
 
   const parseDate = (dateString: string): Date | null => {
@@ -287,7 +279,7 @@ const EditProfileScreen: React.FC<EditProfileProps> = ({
 
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Date of Birth</Text>
-                <TouchableOpacity onPress={showDatePicker} activeOpacity={0.7}>
+                <TouchableOpacity onPress={() => setShowDatePicker(true)} activeOpacity={0.7}>
                   <TextInput
                     style={styles.textInput}
                     placeholder="DD / MM / YYYY"
@@ -296,14 +288,19 @@ const EditProfileScreen: React.FC<EditProfileProps> = ({
                     pointerEvents="none"
                   />
                 </TouchableOpacity>
-                <DateTimePickerModal
-                  isVisible={isDatePickerVisible}
-                  mode="date"
-                  onConfirm={handleDateConfirm}
-                  onCancel={hideDatePicker}
-                  date={parseDate(dateOfBirth) || new Date()}
-                  maximumDate={new Date()} // Can't select future dates
-                />
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={
+                      dateOfBirth
+                        ? parseDate(dateOfBirth) || new Date()
+                        : new Date()
+                    }
+                    mode="date"
+                    display="spinner"
+                    onChange={handleDateChange}
+                    maximumDate={new Date()}
+                  />
+                )}
               </View>
 
               <View style={styles.inputGroup}>

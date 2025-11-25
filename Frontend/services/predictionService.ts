@@ -30,7 +30,7 @@ class PredictionService {
     private baseUrl: string;
 
     constructor() {
-        this.baseUrl = API_BASE_URL || 'http://10.146.44.175:8000';
+        this.baseUrl = API_BASE_URL || 'http://192.168.1.25:8000';
         console.log('PredictionService initialized with baseUrl:', this.baseUrl);
     }
 

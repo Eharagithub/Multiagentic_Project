@@ -2,7 +2,7 @@ spring:
   application:
     name: agentic-backend
   neo4j:
-    uri: ${NEO4J_URI}
+    uri: ${spring.neo4j.uri:neo4j+s://8b3bd0ac.databases.neo4j.io}
     authentication:
-      username: ${NEO4J_USER}
-      password: ${NEO4J_PASSWORD}
+      username: ${spring.neo4j.authentication.username:neo4j}
+      password: ${spring.neo4j.authentication.password:sEjzohGSIH7XKWgUqWZKtiQEHKVLZAMTsY7Ub4BSuCY}
